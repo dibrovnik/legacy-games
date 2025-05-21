@@ -1,0 +1,109 @@
+name: CI/CD NestJS Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Archive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.18.0
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        run: yarn build
+
+      - name: Archive prod artifact
+        run: |
+          tar -czf nestjs-app.tar.gz \
+            dist \
+            package.json \
+            yarn.lock
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nestjs-artifact
+          path: nestjs-app.tar.gz
+
+  deploy:
+    name: Deploy to Server
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nestjs-artifact
+
+      - name: Ensure remote directory exists
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            mkdir -p ~/server/fsp-cup-2025-backend
+
+      - name: Copy artifact to server
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "nestjs-app.tar.gz"
+          target: "~/server/fsp-cup-2025-backend/"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd ~/server/fsp-cup-2025-backend
+
+            # Распаковываем свежий архив
+            tar -xzf nestjs-app.tar.gz -C .
+
+            # Генерируем .env без отступов
+            cat > .env <<EOF
+            PORT=3000
+
+            DB_HOST=localhost
+            DB_PORT=5432
+            DB_USERNAME=postgres
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_NAME=mydb
+
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+
+            S3_URL=https://storage.izvenyaisya.ru/upload
+            S3_UPLOAD_TOKEN=${{ secrets.S3_UPLOAD_TOKEN }}
+
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+            EOF
+
+            # Устанавливаем прод-зависимости
+            yarn install --frozen-lockfile
+
+            # Рестартим приложение через PM2
+            pm2 restart fsp-cup-2025-backend --update-env \
+              || pm2 start dist/main.js --name fsp-cup-2025-backend --update-env

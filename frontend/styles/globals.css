@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+:root {
+  --display: 1800px;
+  --display-full: 1920px;
+  --padding-inline: .75rem;
+}
+
+html,
+body {
+  width: auto;
+  height: auto;
+}
+
+.wrapper {
+  width: min(var(--display), calc(100% - var(--padding-inline) * 2));
+  margin-inline: auto;
+}
+
+.wrapper--full {
+  width: min(var(--display-full), 100%);
+  margin-inline: auto;
+}
+
+header {
+  padding: unset !important;
+}
+
+a, button {
+  cursor: pointer;
+}
+
